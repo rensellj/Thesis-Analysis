@@ -165,3 +165,13 @@ library(MCMCvis)
 library(mcmcplots)
 MCMCplot(out)
 mcmcplots::mcmcplot(out)
+
+dmat
+df$y
+lam0*(exp(-(1/2*9)*dmat*dmat))
+as.matrix(pmat[[1]])
+S<-cbind(sx,sy) 
+S
+D<- e2dist(S,grid)
+grid
+D

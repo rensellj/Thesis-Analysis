@@ -4,16 +4,19 @@ dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
 matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
 }
 
-#observation array 
-M = 150
-N = 40
-T = 5
-K = 5
-sigP = 0.5 #within year scale parameter for encounter probability (how much movement)
-sigS = 0.5 #alpha 1 base number
-phi0 = 0.75
-lam0 =0.9
 
+#observation array 
+M = 50 #augmented
+N = 15 #actual number
+T = 5 #years/months
+K = 5 #capture scenarios 
+sigP = 3 #within year scale parameter for encounter probability (how much movement), alpha1 base number
+sigS = 0 #how much the centroids drift per year
+phi0 = 0.75
+lam0 =0.3
+
+sim.scjs <-
+  function(N,phi0,lam0,M, T, grid, xl, xu, yl, yu, sigP, K, sigS){ # M is total ever alive
 #Built objects and matricies
 nreps<- K #number of secondary captures
 lam0<-rep(lam0,T) #baseline encounter rate, same for all time periods
@@ -72,12 +75,15 @@ for (t in 2:T){
   z[,t]<- surv + r[,t] #those who survives plus those recruited 
 }
 
+
+
 #calculate new S and capture probability per time period 
 for (t in 1:T){
   S<-cbind(sx[,t], sy[,t])
   dmat<-e2dist(S,grid)
-  psi<- exp(-(1/(2*sigP*sigP))*dmat*dmat) #gaussian random walk 
-  lam[[t]]<- lam0[t]*psi
+  psi<- exp(-(1/(2*sigP*sigP))*dmat*dmat) #gaussian random walk originally, now gaussian normal model  
+  #pmat[[t]]<- plogis(lam0[t])*psi #aborted attempt to turn this into gaussian normal model 
+  lam[[t]]<- lam0[t]*psi #Gaussian hazard model 
   pmat[[t]]<- 1- exp(-lam[[t]]) #capture probability 
 }
 
@@ -102,7 +108,91 @@ for (t in 1:T){
       a=which(capsums[i,] >0)
       first[i] = min(a)
     }
+
+    list(y=ycapt,r=r,gamma=gamma,N=apply(z,2,sum),R=apply(r,2,sum), first=first, SX=sx, SY=sy, al=
+           al, N=dim(ycapt)[1], pmat = pmat, S = cbind(sx[,1],sy[,1]), grid = grid, z=z)
+  }
+
+df <- sim.scjs(N=N,lam0=lam0, phi0=phi0, M=M, T=T, grid=grid, xl=xl, xu=xu, yl=yl, yu=yu, sigP=sigP, K=5,sigS=sigS)
+df
+
+#Graphs------------------------------------------------------------------------
+library(ggplot2)
+
+#Encounter Probabilities Graph
+D<- e2dist(df$S,grid)# how far is each individual from each trap?
+p <- df$pmat[[2]]*df$z[,1]
+p <- df$pmat[[2]]
+pplot <- unlist(as.matrix(p))
+
+plot(D, pplot)
+
+pplot[1,]
+
+#Traps and Centroid Graph 
+
+  gridx<-seq(1,10,1)
+  grid<-as.matrix(expand.grid(gridx,gridx))
+  S <- df$S
+  col <- pmat
+  
+  for(i in 1:15){
+    p <- ggplot(grid, aes(x = Var1, y = Var2, color= pmat[[1]][i,])) +
+      geom_point(size = 3) +
+      scale_color_continuous()+
+      theme_minimal()+
+      annotate("point", size = 3, x = S[i,1], y = S[i,2], colour = "red")
+  }
+    plot(p)
+
+
+
     
+#Models------------------------------------------------------------------------    
+
+cjs.mod <- "model { #model
+# Priors
+phi ~ dunif(0,1) # Survival (constant)
+sigP ~ dunif(0,10) # Intercept in sigma estimate
+sigP2<-sigP*sigP #variance of movement parameter sigma
+lam0 ~ dgamma(0.1, 0.1) # Encounter rate
+sigS~dunif(0,10)
+tauXY <- 1/(sigS * sigS) #Variance for centroid spacing and placement
+
+for (i in 1:M){ #m for all known augmented individuals AT FIRST ENTRY
+    z[i,first[i]] <- 1 # Known to be alive at entry into study
+    SX[i,first[i]] ~ dunif(xl, xu)
+    SY[i,first[i]] ~ dunif(yl, yu)
+
+  for(j in 1:J){ #for all traps AT FIRST ENTRY  
+    D2[i,j,first[i]] <- pow(SX[i,first[i]]-trapmat[j,1], 2) + pow(SY[i,first[i]]-trapmat[j,2],2)
+    g[i,j,first[i]] <- lam0*exp(-D2[i,j,first[i]]/(2*sigP2))
+    pmean[i,j,first[i]] <- 1- exp(-g[i,j,first[i]]) 
+    tmp[i,j,first[i]] <- z[i,first[i]]*pmean[i,j,first[i]]
+    y[i,j,first[i]] ~ dbin(tmp[i,j,first[i]], K)
+  }
+
+for (t in (first[i]+1):T) { #t #for all other time after
+ #state process
+    SX[i,t]~dnorm(SX[i, t-1], tauXY)T(xl,xu) # set priors for the X and Y coordinates of each individual
+    SY[i,t]~dnorm(SY[i, t-1], tauXY)T(yl,yu)
+    phiUP[i,t]<- z[i,t-1]*phi #animals dead of last time step cannot survive to the next, mu1
+    z[i,t] ~ dbern(phiUP[i,t]) #probability of being alive 
+  for(j in 1:J){
+$observation process 
+    D2[i,j,t] <- pow(SX[i,t]-trapmat[j,1], 2) + pow(SY[i,t]-trapmat[j,2],2)
+    g[i,j,t] <- lam0*exp(-D2[i,j,t]/(2*sigP2)) #gaussian kernal 
+    pmean[i,j,t] <- 1- exp(-g[i,j,t]) #probabiity of capture
+    tmp[i,j,t] <- z[i,t]*pmean[i,j,t] #p.eff
+    y[i,j,t] ~ dbin(tmp[i,j,t], K)                                               
+}           
+} # t
+} # m
+}                                                             #model"
+
+
+
+#Set up to run model-----------------------------------------------------------     
     #function to creat initial S for each year
     Sin<-function(first=first,T=T, M=M, xl=xl, xu=xu, yl=yl, yu=yu,ntot=ntot){
       SX<-SY<-matrix(NA, nrow=ntot, ncol=T)
