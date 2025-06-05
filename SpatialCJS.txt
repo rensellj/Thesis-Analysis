@@ -1,0 +1,39 @@
+
+
+model {
+# Priors
+sigma ~ dunif(0,80)
+sigma2 <- sigma*sigma
+phi ~ dunif(0, 1)   # Survival (constant across time)
+tauv~dunif(0, 30)
+tau<-1/(tauv*tauv)
+
+for(t in 1:T){
+lam0[t] ~ dgamma(0.1, 0.1)
+}
+
+for (i in 1:M){
+  z[i,first[i]] <- 1
+  S[i,first[i]] ~ dunif(0,50)
+
+for(j in 1:nantenna) {
+  D2[i,j,first[i]] <- pow(S[i,first[i]]-antenna.loc[j], 2)
+       lam[i,j,first[i]]<-  lam0[first[i]]*exp(- D2[i,j,first[i]]/(2*sigma2))
+       tmp[i,j,first[i]] <- lam[i,j,first[i]]
+         y[i,j,first[i]] ~ dpois(tmp[i,j,first[i]])
+      }
+
+   for (t in first[i]+1:T) {
+          S[i,t] ~ dunif(xl, xu)
+         for(j in 1:nantenna) {
+                D2[i,j,t] <- pow(S[i,t]-antenna.loc[j], 2)
+               lam[i,j,t] <- lam0[t] * exp(-D2[i,j,t]/(2*sigma2))
+               tmp[i,j,t] <- z[i,t]*lam[i,j,t]
+                 y[i,j,t] ~ dpois(tmp[i,j,t])
+ }
+    phiUP[i,t] <-  z[i,t-1]*phi
+       z[i,t] ~ dbern(phiUP[i,t])
+}
+}
+}
+

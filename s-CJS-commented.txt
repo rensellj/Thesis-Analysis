@@ -1,0 +1,41 @@
+
+model { #model
+# Priors
+phi ~ dunif(0,1) # Survival (constant)
+sigP ~ dunif(0,10) # Intercept in sigma estimate
+sigP2<-sigP*sigP #variance of movement parameter sigma
+lam0 ~ dgamma(0.1, 0.1) # Encounter rate
+sigS~dunif(0,10)
+tauXY <- 1/(sigS * sigS) #Variance for centroid spacing and placement
+
+for (i in 1:M){ #m for all known augmented individuals AT FIRST ENTRY
+    z[i,first[i]] <- 1 # Known to be alive at entry into study
+    SX[i,first[i]] ~ dunif(xl, xu)
+    SY[i,first[i]] ~ dunif(yl, yu)
+
+  for(j in 1:J){ #for all traps AT FIRST ENTRY  
+    D2[i,j,first[i]] <- pow(SX[i,first[i]]-trapmat[j,1], 2) + pow(SY[i,first[i]]-trapmat[j,2],2)
+    g[i,j,first[i]] <- lam0*exp(-D2[i,j,first[i]]/(2*sigP2))
+    pmean[i,j,first[i]] <- 1- exp(-g[i,j,first[i]]) 
+    tmp[i,j,first[i]] <- z[i,first[i]]*pmean[i,j,first[i]]
+    y[i,j,first[i]] ~ dbin(tmp[i,j,first[i]], K)
+  }
+
+for (t in (first[i]+1):T) { #t #for all other time after
+ #state process
+    SX[i,t]~dnorm(SX[i, t-1], tauXY)T(xl,xu) # set priors for the X and Y coordinates of each individual
+    SY[i,t]~dnorm(SY[i, t-1], tauXY)T(yl,yu)
+    phiUP[i,t]<- z[i,t-1]*phi #animals dead of last time step cannot survive to the next, mu1
+    z[i,t] ~ dbern(phiUP[i,t]) #probability of being alive 
+  for(j in 1:J){
+#observation process 
+    D2[i,j,t] <- pow(SX[i,t]-trapmat[j,1], 2) + pow(SY[i,t]-trapmat[j,2],2)
+    g[i,j,t] <- lam0*exp(-D2[i,j,t]/(2*sigP2)) #gaussian hazard detection 
+    pmean[i,j,t] <- 1- exp(-g[i,j,t]) #probabiity of capture
+    tmp[i,j,t] <- z[i,t]*pmean[i,j,t] #p.eff
+    y[i,j,t] ~ dbin(tmp[i,j,t], K)                                               
+}           
+} # t
+} # m
+} #model
+     

@@ -1,0 +1,32 @@
+
+
+model { #model
+# Priors
+
+phi ~ dunif(0,1)   # Survival (constant)
+
+for(t in 1:T){
+p[t] ~ dunif(0, 1)    # detection (constant)
+}
+    
+for (i in 1:M){ #m    
+
+   z[i,first[i]] ~ dbern(1)  # Known to be alive at entry into study area
+
+  for (t in (first[i]+1):T) { #t
+       #State process--is it alive? 
+           z[i,t] ~ dbern(phiUP[i,t]) #PhiUP = Mu1, probability of being alive
+       phiUP[i,t] <- z[i,t-1]*phi #Ensures that the animal stays dead 
+       #Observation process--was it captured?
+           y[i,t] ~ dbern(tmp[i,t])
+         tmp[i,t] <- z[i,t]*p[t] #mu2 = tmp,  Angie writes as p.eff
+
+     
+
+         
+   } # t
+  } # m
+} #model
+
+
+

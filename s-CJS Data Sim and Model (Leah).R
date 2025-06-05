@@ -1,3 +1,8 @@
+library(msm)
+library(rjags)
+library(R2jags)
+
+#Function to calculate distance between centroids and traps
 e2dist <- function (x, y)
 { i <- sort(rep(1:nrow(y), nrow(x)))
 dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
@@ -9,20 +14,11 @@ matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
 M = 50 #augmented
 N = 15 #actual number
 T = 5 #years/months
-K = 5 #capture scenarios 
+K = 5 #primary capture scenarios 
 sigP = 3 #within year scale parameter for encounter probability (how much movement), alpha1 base number
 sigS = 0 #how much the centroids drift per year
 phi0 = 0.75
 lam0 =0.3
-
-sim.scjs <-
-  function(N,phi0,lam0,M, T, grid, xl, xu, yl, yu, sigP, K, sigS){ # M is total ever alive
-#Built objects and matricies
-nreps<- K #number of secondary captures
-lam0<-rep(lam0,T) #baseline encounter rate, same for all time periods
-phi<-rep(phi0,T) #survival, same for all time periods
-pmat<-lam<-list() #p = prob of cap, lam = encounter rate adjusted
-
 
 #set up the basic trap array in a 10x10 grid
 gridx<-seq(1,10,1)
@@ -36,6 +32,14 @@ xl<-min(grid[,1] - buffer)
 xu<-max(grid[,1] + buffer)
 yl<-min(grid[,2] - buffer)
 yu<-max(grid[,2] + buffer)
+
+sim.scjs <-
+  function(N,phi0,lam0,M, T, grid, xl, xu, yl, yu, sigP, K, sigS){ # M is total ever alive
+#Built objects and matricies
+nreps<- K #number of secondary captures
+lam0<-rep(lam0,T) #baseline encounter rate, same for all time periods
+phi<-rep(phi0,T) #survival, same for all time periods
+pmat<-lam<-list() #p = prob of cap, lam = encounter rate adjusted
 
 #Set up individual centroids t=1 
 sx<-sy<-sin<-matrix(NA, nrow=M, ncol=T) #rows = ind, col = T
@@ -110,19 +114,19 @@ for (t in 1:T){
     }
 
     list(y=ycapt,r=r,gamma=gamma,N=apply(z,2,sum),R=apply(r,2,sum), first=first, SX=sx, SY=sy, al=
-           al, N=dim(ycapt)[1], pmat = pmat, S = cbind(sx[,1],sy[,1]), grid = grid, z=z)
+           al, N=dim(ycapt)[1], pmat = pmat, grid = grid, z=z, S = cbind(sx[,1],sy[,1]))
   }
 
-df <- sim.scjs(N=N,lam0=lam0, phi0=phi0, M=M, T=T, grid=grid, xl=xl, xu=xu, yl=yl, yu=yu, sigP=sigP, K=5,sigS=sigS)
-df
+simdat <- sim.scjs(N=N,lam0=lam0, phi0=phi0, M=M, T=T, grid=grid, xl=xl, xu=xu, yl=yl, yu=yu, sigP=sigP, K=5,sigS=sigS)
+simdat$y
 
 #Graphs------------------------------------------------------------------------
 library(ggplot2)
 
 #Encounter Probabilities Graph
-D<- e2dist(df$S,grid)# how far is each individual from each trap?
-p <- df$pmat[[2]]*df$z[,1]
-p <- df$pmat[[2]]
+D<- e2dist(simdat$S,grid)# how far is each individual from each trap?
+p <- simdat$pmat[[2]]*simdat$z[,1]
+p <- simdat$pmat[[2]]
 pplot <- unlist(as.matrix(p))
 
 plot(D, pplot)
@@ -131,13 +135,13 @@ pplot[1,]
 
 #Traps and Centroid Graph 
 
-  gridx<-seq(1,10,1)
-  grid<-as.matrix(expand.grid(gridx,gridx))
-  S <- df$S
-  col <- pmat
+  g1<-seq(1,10,1)
+  g2<-as.matrix(expand.grid(gridx,gridx))
+  S <- simdat$S
+  col <- as.matrix(simdat$pmat[[1]])
   
-  for(i in 1:15){
-    p <- ggplot(grid, aes(x = Var1, y = Var2, color= pmat[[1]][i,])) +
+  for(i in 1:nrow(simdat$pmat[[1]])){
+    p <- ggplot(g2, aes(x = Var1, y = Var2, color= col[i,])) +
       geom_point(size = 3) +
       scale_color_continuous()+
       theme_minimal()+
@@ -145,12 +149,14 @@ pplot[1,]
   }
     plot(p)
 
-
-
+    simdat$pmat[[1]][2,]
+S
     
 #Models------------------------------------------------------------------------    
-
-cjs.mod <- "model { #model
+    
+sink("s-CJS-commented.txt")
+    cat( "
+model { #model
 # Priors
 phi ~ dunif(0,1) # Survival (constant)
 sigP ~ dunif(0,10) # Intercept in sigma estimate
@@ -179,19 +185,20 @@ for (t in (first[i]+1):T) { #t #for all other time after
     phiUP[i,t]<- z[i,t-1]*phi #animals dead of last time step cannot survive to the next, mu1
     z[i,t] ~ dbern(phiUP[i,t]) #probability of being alive 
   for(j in 1:J){
-$observation process 
+#observation process 
     D2[i,j,t] <- pow(SX[i,t]-trapmat[j,1], 2) + pow(SY[i,t]-trapmat[j,2],2)
-    g[i,j,t] <- lam0*exp(-D2[i,j,t]/(2*sigP2)) #gaussian kernal 
+    g[i,j,t] <- lam0*exp(-D2[i,j,t]/(2*sigP2)) #gaussian hazard detection 
     pmean[i,j,t] <- 1- exp(-g[i,j,t]) #probabiity of capture
     tmp[i,j,t] <- z[i,t]*pmean[i,j,t] #p.eff
     y[i,j,t] ~ dbin(tmp[i,j,t], K)                                               
 }           
 } # t
 } # m
-}                                                             #model"
-
-
-
+} #model
+     ",fill=TRUE)  
+    sink()
+    
+    
 #Set up to run model-----------------------------------------------------------     
     #function to creat initial S for each year
     Sin<-function(first=first,T=T, M=M, xl=xl, xu=xu, yl=yl, yu=yu,ntot=ntot){
@@ -209,25 +216,30 @@ $observation process
       }
       return(list(SX, SY))
     }
-    #set up intial values for z
+#set up intial values for z
     zin<-matrix(1, dim(simdat$y)[1], T)
     for(i in 1:dim(simdat$y)[1]){
       for(t in 1:simdat$first[i]){
         zin[i,t]<-NA
       }}
- #statespace is 4x, as is data generation
-    data<-list(y=y, first=first, M=dim(y)[1],T=5,xl=xl, xu=xu, yl=yl, yu=yu,K
+#statespace is 4x, as is data generation
+    data.leah<-list(y=simdat$y, first=simdat$first, M=dim(simdat$y)[1],T=5,xl=xl, xu=xu, yl=yl, yu=yu,K
                =K, J=J, trapmat=as.matrix(grid))
-    inits = function() {list(phi=runif(1, .5, 1),sigP=runif(1,1,2), lam0=runif(1), z=zin, sigS=runif(1,0.1,3),
+    
+    inits.leah = function() {list(phi=runif(1, .5, 1),sigP=runif(1,1,2), lam0=runif(1), z=zin, sigS=runif(1,0.1,3),
                              SX=Sin(first=simdat$first,T=T, xl=xl, xu=xu, yl=yl, yu=yu, ntot=dim(simdat$y)[1])[[1]],
                              SY=Sin(first=simdat$first,T=T, xl=xl, xu=xu, yl=yl, yu=yu, ntot=dim(simdat$y)[1])[[2]]
     ) }
     params<-c("phi","sigP", "sigS", "lam0")
-    cjs.mod2 <- textConnection(cjs.mod)
-    mod<-jags.model(cjs.mod, data, inits, n.chains=3, n.adapt=100)
-    mod.out <- jags.model("cjs.txt", data, inits, n.chains=3)
-    out<-coda.samples(mod.out, params, n.iter=100, thin=3)
+    #cjs.mod2 <- textConnection(cjs.mod)
+    #mod<-jags.model(cjs.mod, data, inits, n.chains=3, n.adapt=100)
+    mod.out <- jags.model("s-CJS-commented.txt", data.leah, inits.leah, n.chains=3)
+    out<-coda.samples(mod.out, params, n.iter=10000, thin=3)
     out
-    close(cjs.mod)
+  
     library(MCMCvis)
     library(mcmcplots)    
+    MCMCplot(out)
+    mcmcplots::mcmcplot(out)
+    
+    
