@@ -1,5 +1,6 @@
 sink("s-CJS-Augmented.txt")
 cat( "model { #model
+
 # Priors
 phi ~ dunif(0,1) # Survival (constant)
 sigP ~ dunif(0,10) # Intercept in sigma estimate
@@ -16,7 +17,7 @@ for (i in 1:C){ #m for all known individuals AT FIRST ENTRY
 
   for(j in 1:J){ #for all traps AT FIRST ENTRY  
     D2[i,j,first[i]] <- pow(SX[i,first[i]]-trapmat[j,1], 2) + pow(SY[i,first[i]]-trapmat[j,2],2)
-    g[i,j,first[i]] <- lam0*exp(-D2[i,j,first[i]]/(2*sigP2))
+    g[i,j,first[i]] <- lam0*exp(-D2[i,j,first[i]]/(2*sigP2)) #half normal hazard rate
     pmean[i,j,first[i]] <- 1- exp(-g[i,j,first[i]]) 
     tmp[i,j,first[i]] <- z[i,first[i]]*pmean[i,j,first[i]]
     y[i,j,first[i]] ~ dbin(tmp[i,j,first[i]], K)
@@ -67,8 +68,9 @@ for (t in (first[i]+1):T) { #t #for all other time after
 } # t
 }#M
 
-N <- sum(z[1:M,T])
-D <- N/144  #(xlim[2]*ylim[2])
+#N[t] <- sum(z[1:M,t])
+#D[t] <- N[t]/144  #(xlim[2]*ylim[2])
+
 } #model
 
  ",fill=TRUE)  
@@ -135,8 +137,8 @@ params<-c("phi","sigP", "sigS", "lam0", "N", "D", "z")
 #cjs.mod2 <- textConnection(cjs.mod)
 #mod<-jags.model(cjs.mod, data, inits, n.chains=3, n.adapt=100)
 mod.out.aug <- jags.model("s-CJS-Augmented.txt", data.leah, inits.leah, n.chains=3)
-out.aug<-coda.samples(mod.out.aug, params, n.iter=10000, thin=3)
-mod.out.aug$
+out.aug<-coda.samples(mod.out.aug, params, n.iter=1000, thin=3)
+
 
 library(MCMCvis)
 library(mcmcplots)    
